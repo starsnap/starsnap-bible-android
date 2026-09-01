@@ -1,0 +1,4 @@
+-keepattributes Signature
+-keepattributes *Annotation*
+-keepclassmembers class com.photo.starsnap.bible.data.** { <fields>; }
+-dontwarn org.conscrypt.**
