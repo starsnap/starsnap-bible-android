@@ -1,4 +1,4 @@
-package com.photo.starsnap.bible.data
+package com.bible.starsnap.data
 
 import android.content.Context
 import android.security.keystore.KeyGenParameterSpec

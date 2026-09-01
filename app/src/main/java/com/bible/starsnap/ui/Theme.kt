@@ -1,4 +1,4 @@
-package com.photo.starsnap.bible.ui
+package com.bible.starsnap.ui
 
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.material3.MaterialTheme

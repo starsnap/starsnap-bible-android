@@ -1,11 +1,11 @@
-package com.photo.starsnap.bible.ui
+package com.bible.starsnap.ui
 
-import com.photo.starsnap.bible.data.ApiException
-import com.photo.starsnap.bible.data.BibleGateway
-import com.photo.starsnap.bible.data.BibleLicenseStatus
-import com.photo.starsnap.bible.data.BibleMeditation
-import com.photo.starsnap.bible.data.BibleSlice
-import com.photo.starsnap.bible.data.BibleVerse
+import com.bible.starsnap.data.ApiException
+import com.bible.starsnap.data.BibleGateway
+import com.bible.starsnap.data.BibleLicenseStatus
+import com.bible.starsnap.data.BibleMeditation
+import com.bible.starsnap.data.BibleSlice
+import com.bible.starsnap.data.BibleVerse
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi

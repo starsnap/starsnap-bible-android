@@ -1,4 +1,4 @@
-package com.photo.starsnap.bible.data
+package com.bible.starsnap.data
 
 import java.time.LocalDateTime
 import java.time.format.DateTimeFormatter

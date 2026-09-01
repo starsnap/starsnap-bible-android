@@ -1,10 +1,10 @@
-package com.photo.starsnap.bible.ui
+package com.bible.starsnap.ui
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import com.photo.starsnap.bible.data.ApiException
-import com.photo.starsnap.bible.data.BibleGateway
-import com.photo.starsnap.bible.data.SecureCookieJar
+import com.bible.starsnap.data.ApiException
+import com.bible.starsnap.data.BibleGateway
+import com.bible.starsnap.data.SecureCookieJar
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow

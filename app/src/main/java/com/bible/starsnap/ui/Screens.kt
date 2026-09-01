@@ -1,4 +1,4 @@
-package com.photo.starsnap.bible.ui
+package com.bible.starsnap.ui
 
 import android.app.DatePickerDialog
 import android.app.TimePickerDialog
@@ -59,8 +59,8 @@ import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LifecycleEventEffect
-import com.photo.starsnap.bible.data.BibleVerse
-import com.photo.starsnap.bible.data.WorshipTime
+import com.bible.starsnap.data.BibleVerse
+import com.bible.starsnap.data.WorshipTime
 import java.time.LocalDateTime
 
 @Composable

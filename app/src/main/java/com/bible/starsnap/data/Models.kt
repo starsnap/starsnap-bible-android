@@ -1,4 +1,4 @@
-package com.photo.starsnap.bible.data
+package com.bible.starsnap.data
 
 data class LoginRequest(
     val username: String,

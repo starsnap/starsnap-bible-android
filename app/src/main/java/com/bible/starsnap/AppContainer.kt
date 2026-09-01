@@ -1,8 +1,8 @@
-package com.photo.starsnap.bible
+package com.bible.starsnap
 
 import android.content.Context
 import com.bible.starsnap.data.BibleApiClient
-import com.photo.starsnap.bible.data.SecureCookieJar
+import com.bible.starsnap.data.SecureCookieJar
 import okhttp3.HttpUrl.Companion.toHttpUrl
 
 class AppContainer(context: Context) {

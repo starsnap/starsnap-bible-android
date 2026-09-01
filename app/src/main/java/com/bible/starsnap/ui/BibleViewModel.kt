@@ -1,13 +1,13 @@
-package com.photo.starsnap.bible.ui
+package com.bible.starsnap.ui
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import com.photo.starsnap.bible.data.ApiException
-import com.photo.starsnap.bible.data.BibleGateway
-import com.photo.starsnap.bible.data.BibleLicenseStatus
-import com.photo.starsnap.bible.data.BibleMeditation
-import com.photo.starsnap.bible.data.BibleVerse
-import com.photo.starsnap.bible.data.WorshipTime
+import com.bible.starsnap.data.ApiException
+import com.bible.starsnap.data.BibleGateway
+import com.bible.starsnap.data.BibleLicenseStatus
+import com.bible.starsnap.data.BibleMeditation
+import com.bible.starsnap.data.BibleVerse
+import com.bible.starsnap.data.WorshipTime
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.MutableStateFlow

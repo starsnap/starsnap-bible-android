@@ -1,4 +1,4 @@
-package com.photo.starsnap.bible
+package com.bible.starsnap
 
 import android.os.Bundle
 import androidx.activity.ComponentActivity
@@ -7,10 +7,10 @@ import androidx.activity.enableEdgeToEdge
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewmodel.CreationExtras
-import com.photo.starsnap.bible.ui.BibleViewModel
-import com.photo.starsnap.bible.ui.SessionViewModel
-import com.photo.starsnap.bible.ui.StarSnapBibleApp
-import com.photo.starsnap.bible.ui.StarSnapBibleTheme
+import com.bible.starsnap.ui.BibleViewModel
+import com.bible.starsnap.ui.SessionViewModel
+import com.bible.starsnap.ui.StarSnapBibleApp
+import com.bible.starsnap.ui.StarSnapBibleTheme
 
 class MainActivity : ComponentActivity() {
     private val container by lazy { AppContainer(applicationContext) }

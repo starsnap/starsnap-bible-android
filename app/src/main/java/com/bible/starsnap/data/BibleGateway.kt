@@ -1,4 +1,4 @@
-package com.photo.starsnap.bible.data
+package com.bible.starsnap.data
 
 interface BibleGateway {
     suspend fun refreshSession(): Boolean

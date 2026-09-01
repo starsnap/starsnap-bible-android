@@ -1,4 +1,4 @@
-package com.photo.starsnap.bible.ui
+package com.bible.starsnap.ui
 
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect

@@ -1,4 +1,4 @@
-package com.photo.starsnap.bible.data
+package com.bible.starsnap.data
 
 import okhttp3.Cookie
 import okhttp3.HttpUrl.Companion.toHttpUrl

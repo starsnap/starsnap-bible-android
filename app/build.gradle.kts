@@ -5,7 +5,7 @@ plugins {
 }
 
 android {
-    namespace = "com.photo.starsnap.bible"
+    namespace = "com.bible.starsnap"
     compileSdk = 36
 
     defaultConfig {
