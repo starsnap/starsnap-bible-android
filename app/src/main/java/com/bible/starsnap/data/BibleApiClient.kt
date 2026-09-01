@@ -1,6 +1,7 @@
-package com.photo.starsnap.bible.data
+package com.bible.starsnap.data
 
 import com.google.gson.Gson
+import com.photo.starsnap.bible.data.*
 import okhttp3.Authenticator
 import okhttp3.Call
 import okhttp3.Callback

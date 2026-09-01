@@ -1,5 +1,6 @@
 package com.photo.starsnap.bible.data
 
+import com.bible.starsnap.data.BibleApiClient
 import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.async
