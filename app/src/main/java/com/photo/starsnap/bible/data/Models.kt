@@ -6,8 +6,6 @@ data class LoginRequest(
     val loginType: String,
 )
 
-data class AuthResponse(val expiredAt: String? = null)
-
 data class BibleLicenseStatus(
     val phase: String,
     val searchAvailable: Boolean,

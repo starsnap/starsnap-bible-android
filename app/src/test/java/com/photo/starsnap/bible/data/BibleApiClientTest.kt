@@ -109,8 +109,8 @@ class BibleApiClientTest {
     }
 
     @Test
-    fun loginSendsUsernameOrEmailType() = runTest {
-        server.enqueue(json("""{"expiredAt":"2026-09-01T10:00:00"}"""))
+    fun loginIgnoresResponseBodyAndSendsUsernameOrEmailType() = runTest {
+        server.enqueue(json("not-json"))
         server.enqueue(json("""{"expiredAt":"2026-09-01T10:00:00"}"""))
 
         client.login("person@example.com", "secret")

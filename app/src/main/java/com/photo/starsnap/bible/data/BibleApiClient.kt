@@ -52,7 +52,7 @@ class BibleApiClient(
         }
     }
 
-    override suspend fun login(username: String, password: String): AuthResponse {
+    override suspend fun login(username: String, password: String) {
         val body = gson.toJson(
             LoginRequest(
                 username = username,
@@ -60,12 +60,12 @@ class BibleApiClient(
                 loginType = if ('@' in username) "EMAIL" else "USERNAME",
             ),
         )
-        return request(
+        requestEmpty(
             method = "POST",
             path = "/api/auth/login",
             body = body,
-            responseClass = AuthResponse::class.java,
-        ).also { refreshVersion.incrementAndGet() }
+        )
+        refreshVersion.incrementAndGet()
     }
 
     override suspend fun logout() {
@@ -147,9 +147,10 @@ class BibleApiClient(
         )
     }
 
-    private suspend fun requestEmpty(method: String, path: String) {
+    private suspend fun requestEmpty(method: String, path: String, body: String? = null) {
         withContext(Dispatchers.IO) {
-            val request = requestBuilder(path).method(method, EMPTY_JSON_BODY).build()
+            val requestBody = body?.toRequestBody(JSON_MEDIA_TYPE) ?: EMPTY_JSON_BODY
+            val request = requestBuilder(path).method(method, requestBody).build()
             client.newCall(request).await().use { response ->
                 if (!response.isSuccessful) throw response.toException()
             }

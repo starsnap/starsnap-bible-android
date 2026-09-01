@@ -1,7 +1,6 @@
 package com.photo.starsnap.bible.ui
 
 import com.photo.starsnap.bible.data.ApiException
-import com.photo.starsnap.bible.data.AuthResponse
 import com.photo.starsnap.bible.data.BibleGateway
 import com.photo.starsnap.bible.data.BibleLicenseStatus
 import com.photo.starsnap.bible.data.BibleMeditation
@@ -169,7 +168,7 @@ class BibleViewModelTest {
         var saveError: Throwable? = null
 
         override suspend fun refreshSession() = false
-        override suspend fun login(username: String, password: String) = AuthResponse()
+        override suspend fun login(username: String, password: String) = Unit
         override suspend fun logout() = Unit
         override fun invalidateSession() = Unit
         override suspend fun licenseStatus() = licenseResponses.removeFirst().await()
