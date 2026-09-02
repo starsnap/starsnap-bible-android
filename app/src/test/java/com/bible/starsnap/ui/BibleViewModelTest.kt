@@ -77,7 +77,7 @@ class BibleViewModelTest {
         noteA.complete(meditation("A", 0, "note A"))
         advanceUntilIdle()
 
-        assertEquals(verseA, model.state.value.selectedVerse)
+        assertEquals(model.state.value.toString(), verseA, model.state.value.selectedVerse)
         assertEquals("note A", model.state.value.content)
         assertTrue(model.state.value.error?.contains("불러오거나 저장") == true)
     }
@@ -90,7 +90,7 @@ class BibleViewModelTest {
         model.loadLicense()
         advanceUntilIdle()
         val verse = verse("A")
-        gateway.noteResponses[verse.id] = CompletableDeferred(null)
+        gateway.noteResponses[verse.id] = noMeditation()
         model.selectVerse(verse)
         advanceUntilIdle()
         model.updateContent("작성 중인 초안")
@@ -113,7 +113,7 @@ class BibleViewModelTest {
         advanceUntilIdle()
         val verseA = verse("A")
         val verseB = verse("B")
-        gateway.noteResponses[verseA.id] = CompletableDeferred(null)
+        gateway.noteResponses[verseA.id] = noMeditation()
         model.selectVerse(verseA)
         advanceUntilIdle()
         model.updateContent("저장 전 초안")
@@ -133,14 +133,14 @@ class BibleViewModelTest {
         model.loadLicense()
         advanceUntilIdle()
         val start = verse("A")
-        gateway.noteResponses[start.id] = CompletableDeferred(null)
+        gateway.noteResponses[start.id] = noMeditation()
         model.selectVerse(start)
         advanceUntilIdle()
 
         model.selectVerse(start.copy(verse = 3))
         advanceUntilIdle()
 
-        assertEquals(listOf(1, 2, 3), model.state.value.selectedVerses.map { it.verse })
+        assertEquals(model.state.value.toString(), listOf(1, 2, 3), model.state.value.selectedVerses.map { it.verse })
         assertEquals(3, model.state.value.selectedEndVerse)
         assertTrue(model.state.value.isDirty)
     }
@@ -253,6 +253,8 @@ class BibleViewModelTest {
     }
 
     private companion object {
+        fun noMeditation() = CompletableDeferred<BibleMeditation?>().apply { complete(null) }
+
         fun activeLicense() = BibleLicenseStatus(
             phase = "active",
             searchAvailable = true,
