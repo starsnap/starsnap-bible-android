@@ -148,7 +148,7 @@ fun LoginScreen(
                         value = state.username,
                         onValueChange = onUsernameChange,
                         modifier = Modifier.fillMaxWidth(),
-                        label = { Text("아이디 또는 이메일") },
+                        label = { Text("아이디") },
                         singleLine = true,
                         keyboardOptions = KeyboardOptions(imeAction = ImeAction.Next),
                     )
