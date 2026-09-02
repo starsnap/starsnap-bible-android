@@ -1,25 +1,17 @@
 package com.bible.starsnap.data
 
 import kotlinx.coroutines.test.runTest
-import kotlinx.coroutines.test.runCurrent
-import kotlinx.coroutines.async
-import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import com.google.gson.Gson
 import okhttp3.CookieJar
-import okhttp3.mockwebserver.Dispatcher
 import okhttp3.mockwebserver.MockResponse
 import okhttp3.mockwebserver.MockWebServer
-import okhttp3.mockwebserver.RecordedRequest
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
-import java.util.concurrent.CountDownLatch
-import java.util.concurrent.TimeUnit
-import java.util.concurrent.atomic.AtomicInteger
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class BibleApiClientTest {
@@ -87,12 +79,14 @@ class BibleApiClientTest {
             verse = syntheticVerse(),
             content = "private note",
             worshipAt = "2026-09-01T19:30",
+            endVerse = 3,
             current = null,
         )
         client.saveMeditation(
             verse = syntheticVerse(),
             content = "updated note",
             worshipAt = "2026-09-02T09:10",
+            endVerse = 4,
             current = created,
         )
 
@@ -103,95 +97,53 @@ class BibleApiClientTest {
 
         assertEquals("POST", create.method)
         assertEquals("2026-09-01T19:30", createJson.worshipAt)
+        assertEquals(3, createJson.endVerse)
         assertEquals("PATCH", update.method)
         assertEquals(0L, updateJson.expectedVersion)
         assertEquals("2026-09-02T09:10", updateJson.worshipAt)
+        assertEquals(4, updateJson.endVerse)
     }
 
     @Test
-    fun loginIgnoresResponseBodyAndSendsUsernameOrEmailType() = runTest {
-        server.enqueue(json("not-json"))
-        server.enqueue(json("""{"expiredAt":"2026-09-01T10:00:00"}"""))
+    fun rangeUsesCanonicalRangeEndpoint() = runTest {
+        server.enqueue(json("""[${verseJson(1)},${verseJson(2)}]"""))
 
-        client.login("person@example.com", "secret")
-        client.login("nickname", "secret")
+        val result = client.verseRange(syntheticVerse(), 2)
+        val request = server.takeRequest()
 
-        val email = Gson().fromJson(server.takeRequest().body.readUtf8(), LoginRequest::class.java)
-        val username = Gson().fromJson(server.takeRequest().body.readUtf8(), LoginRequest::class.java)
-        assertEquals("EMAIL", email.loginType)
-        assertEquals("USERNAME", username.loginType)
+        assertEquals(2, result.size)
+        assertEquals("/api/bible/verses/range", request.requestUrl?.encodedPath)
+        assertEquals("1", request.requestUrl?.queryParameter("verse"))
+        assertEquals("2", request.requestUrl?.queryParameter("endVerse"))
     }
 
     @Test
-    fun concurrentUnauthorizedRequestsShareOneRefresh() = runTest {
-        val protectedCount = AtomicInteger(0)
-        val refreshCount = AtomicInteger(0)
-        val initialRequests = CountDownLatch(2)
-        server.dispatcher = object : Dispatcher() {
-            override fun dispatch(request: RecordedRequest): MockResponse {
-                return when (request.requestUrl?.encodedPath) {
-                    "/api/auth/refresh" -> {
-                        refreshCount.incrementAndGet()
-                        json("{}")
-                    }
-                    "/api/bible/license/status" -> {
-                        val count = protectedCount.incrementAndGet()
-                        if (count <= 2) {
-                            initialRequests.countDown()
-                            initialRequests.await(5, TimeUnit.SECONDS)
-                            json("""{"message":"expired"}""", status = 401)
-                        } else {
-                            json("""{"phase":"pending","searchAvailable":false,"textDisplayAllowed":false,"notice":"pending","providerName":null,"expiresOn":null}""")
-                        }
-                    }
-                    else -> json("""{"message":"not found"}""", status = 404)
-                }
-            }
-        }
+    fun loginUsesStandaloneBibleAccountEndpoint() = runTest {
+        server.enqueue(json("""{"userId":"user-1","username":"reader1"}"""))
 
-        listOf(
-            async { client.licenseStatus() },
-            async { client.licenseStatus() },
-        ).awaitAll()
+        client.login("reader1", "secret")
 
-        assertEquals(1, refreshCount.get())
-        assertEquals(4, protectedCount.get())
+        val request = server.takeRequest()
+        val login = Gson().fromJson(request.body.readUtf8(), LoginRequest::class.java)
+        assertEquals("/api/bible/auth/login", request.requestUrl?.encodedPath)
+        assertEquals("reader1", login.username)
+        assertEquals("secret", login.password)
     }
 
     @Test
-    fun oldSessionUnauthorizedResponseIsNeverReplayedAfterEpochChange() = runTest {
-        val initialSeen = CountDownLatch(1)
-        val releaseUnauthorized = CountDownLatch(1)
-        val refreshCount = AtomicInteger(0)
-        val protectedCount = AtomicInteger(0)
-        server.dispatcher = object : Dispatcher() {
-            override fun dispatch(request: RecordedRequest): MockResponse {
-                return when (request.requestUrl?.encodedPath) {
-                    "/api/auth/refresh" -> {
-                        refreshCount.incrementAndGet()
-                        json("{}")
-                    }
-                    "/api/bible/license/status" -> {
-                        protectedCount.incrementAndGet()
-                        initialSeen.countDown()
-                        releaseUnauthorized.await(5, TimeUnit.SECONDS)
-                        json("""{"message":"expired"}""", status = 401)
-                    }
-                    else -> json("""{"message":"not found"}""", status = 404)
-                }
-            }
-        }
+    fun validStandaloneBibleSessionIsAccepted() = runTest {
+        server.enqueue(json("""{"userId":"user-1","username":"reader1"}"""))
 
-        val oldRequest = async { runCatching { client.licenseStatus() } }
-        runCurrent()
-        assertEquals(true, initialSeen.await(5, TimeUnit.SECONDS))
-        client.invalidateSession()
-        releaseUnauthorized.countDown()
-        val result = oldRequest.await()
+        assertTrue(client.validateSession())
+        assertEquals("/api/bible/auth/session", server.takeRequest().requestUrl?.encodedPath)
+    }
 
-        assertTrue(result.isFailure)
-        assertEquals(0, refreshCount.get())
-        assertEquals(1, protectedCount.get())
+    @Test
+    fun expiredStandaloneBibleSessionIsRejectedWithoutRetry() = runTest {
+        server.enqueue(json("""{"message":"Authentication required"}""", status = 401))
+
+        assertEquals(false, client.validateSession())
+        assertEquals(1, server.requestCount)
     }
 
     private fun syntheticVerse() = BibleVerse(
@@ -206,7 +158,10 @@ class BibleApiClientTest {
     )
 
     private fun meditationJson(id: String, version: Long) =
-        """{"id":"$id","bookCode":"TST","chapter":1,"verse":1,"content":"private note","version":$version,"createdAt":"2026-09-01T19:30:00","modifiedAt":"2026-09-01T19:30:00","worshipAt":"2026-09-01T19:30:00"}"""
+        """{"id":"$id","bookCode":"TST","chapter":1,"verse":1,"endVerse":1,"content":"private note","version":$version,"createdAt":"2026-09-01T19:30:00","modifiedAt":"2026-09-01T19:30:00","worshipAt":"2026-09-01T19:30:00"}"""
+
+    private fun verseJson(verse: Int) =
+        """{"translationCode":"TEST","translationName":"Synthetic","copyrightNotice":"Test data only","bookCode":"TST","bookName":"Synthetic book","chapter":1,"verse":$verse,"text":"synthetic-$verse"}"""
 
     private fun json(body: String, status: Int = 200) = MockResponse()
         .setResponseCode(status)

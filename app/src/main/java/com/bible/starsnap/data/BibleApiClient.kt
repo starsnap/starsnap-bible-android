@@ -1,7 +1,6 @@
 package com.bible.starsnap.data
 
 import com.google.gson.Gson
-import okhttp3.Authenticator
 import okhttp3.Call
 import okhttp3.Callback
 import okhttp3.CookieJar
@@ -11,7 +10,6 @@ import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
 import okhttp3.Response
-import okhttp3.Route
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
@@ -19,37 +17,19 @@ import java.io.IOException
 import kotlin.coroutines.resume
 import kotlin.coroutines.resumeWithException
 import java.util.concurrent.TimeUnit
-import java.util.concurrent.atomic.AtomicLong
 
 class BibleApiClient(
     private val baseUrl: HttpUrl,
     cookieJar: CookieJar,
     private val gson: Gson = Gson(),
 ) : BibleGateway {
-    private val refreshLock = Any()
-    private val sessionEpoch = AtomicLong(0)
-    private val refreshVersion = AtomicLong(0)
-    private val refreshClient = baseClient(cookieJar).build()
-    private val client = baseClient(cookieJar)
-        .addInterceptor { chain ->
-            val tagged = chain.request().newBuilder()
-                .tag(
-                    SessionGenerationTag::class.java,
-                    SessionGenerationTag(
-                        epoch = sessionEpoch.get(),
-                        refreshVersion = refreshVersion.get(),
-                    ),
-                )
-                .build()
-            chain.proceed(tagged)
-        }
-        .authenticator(SessionAuthenticator())
-        .build()
+    private val client = baseClient(cookieJar).build()
 
-    override suspend fun refreshSession(): Boolean = withContext(Dispatchers.IO) {
-        refreshRequest().use {
-            it.isSuccessful.also { success -> if (success) refreshVersion.incrementAndGet() }
-        }
+    override suspend fun validateSession(): Boolean = try {
+        requestEmpty(method = "GET", path = "/api/bible/auth/session")
+        true
+    } catch (error: ApiException) {
+        if (error.statusCode == 401) false else throw error
     }
 
     override suspend fun login(username: String, password: String) {
@@ -57,25 +37,17 @@ class BibleApiClient(
             LoginRequest(
                 username = username,
                 password = password,
-                loginType = if ('@' in username) "EMAIL" else "USERNAME",
             ),
         )
         requestEmpty(
             method = "POST",
-            path = "/api/auth/login",
+            path = "/api/bible/auth/login",
             body = body,
         )
-        refreshVersion.incrementAndGet()
     }
 
     override suspend fun logout() {
-        requestEmpty(method = "POST", path = "/api/auth/logout")
-        refreshVersion.incrementAndGet()
-    }
-
-    override fun invalidateSession() {
-        sessionEpoch.incrementAndGet()
-        refreshVersion.set(0)
+        requestEmpty(method = "POST", path = "/api/bible/auth/logout")
     }
 
     override suspend fun licenseStatus(): BibleLicenseStatus = request(
@@ -97,6 +69,19 @@ class BibleApiClient(
         responseClass = BibleSlice::class.java,
     )
 
+    override suspend fun verseRange(start: BibleVerse, endVerse: Int): List<BibleVerse> = request(
+        method = "GET",
+        path = "/api/bible/verses/range",
+        query = mapOf(
+            "translationCode" to start.translationCode,
+            "bookCode" to start.bookCode,
+            "chapter" to start.chapter.toString(),
+            "verse" to start.verse.toString(),
+            "endVerse" to endVerse.toString(),
+        ),
+        responseClass = Array<BibleVerse>::class.java,
+    ).toList()
+
     override suspend fun meditationByVerse(verse: BibleVerse): BibleMeditation? = try {
         request(
             method = "GET",
@@ -116,6 +101,7 @@ class BibleApiClient(
         verse: BibleVerse,
         content: String,
         worshipAt: String,
+        endVerse: Int,
         current: BibleMeditation?,
     ): BibleMeditation = if (current == null) {
         request(
@@ -128,6 +114,7 @@ class BibleApiClient(
                     verse = verse.verse,
                     content = content,
                     worshipAt = worshipAt,
+                    endVerse = endVerse,
                 ),
             ),
             responseClass = BibleMeditation::class.java,
@@ -141,6 +128,7 @@ class BibleApiClient(
                     content = content,
                     expectedVersion = current.version,
                     worshipAt = worshipAt,
+                    endVerse = endVerse,
                 ),
             ),
             responseClass = BibleMeditation::class.java,
@@ -149,7 +137,8 @@ class BibleApiClient(
 
     private suspend fun requestEmpty(method: String, path: String, body: String? = null) {
         withContext(Dispatchers.IO) {
-            val requestBody = body?.toRequestBody(JSON_MEDIA_TYPE) ?: EMPTY_JSON_BODY
+            val requestBody = body?.toRequestBody(JSON_MEDIA_TYPE)
+                ?: if (method == "GET") null else EMPTY_JSON_BODY
             val request = requestBuilder(path).method(method, requestBody).build()
             client.newCall(request).await().use { response ->
                 if (!response.isSuccessful) throw response.toException()
@@ -187,17 +176,6 @@ class BibleApiClient(
             .header("Accept", "application/json")
     }
 
-    private fun refreshRequest(): Response {
-        val url = baseUrl.resolve("api/auth/refresh")
-            ?: throw IllegalArgumentException("Invalid refresh URL")
-        val request = Request.Builder()
-            .url(url)
-            .patch(EMPTY_JSON_BODY)
-            .header("Accept", "application/json")
-            .build()
-        return refreshClient.newCall(request).execute()
-    }
-
     private fun Response.toException(): ApiException {
         val payload = body?.string().orEmpty()
         val envelope = runCatching { gson.fromJson(payload, ErrorEnvelope::class.java) }.getOrNull()
@@ -214,42 +192,6 @@ class BibleApiClient(
         .connectTimeout(10, TimeUnit.SECONDS)
         .readTimeout(30, TimeUnit.SECONDS)
         .writeTimeout(30, TimeUnit.SECONDS)
-
-    private inner class SessionAuthenticator : Authenticator {
-        override fun authenticate(route: Route?, response: Response): Request? {
-            if (response.request.url.encodedPath in AUTHENTICATOR_EXCLUDED_PATHS) return null
-            if (responseCount(response) >= 2) return null
-
-            return synchronized(refreshLock) {
-                val requestGeneration = response.request
-                    .tag(SessionGenerationTag::class.java)
-                if (requestGeneration != null && requestGeneration.epoch != sessionEpoch.get()) {
-                    return@synchronized null
-                }
-                if (requestGeneration != null && requestGeneration.refreshVersion != refreshVersion.get()) {
-                    return@synchronized response.request.newBuilder().build()
-                }
-                refreshRequest().use { refresh ->
-                    if (refresh.isSuccessful) {
-                        refreshVersion.incrementAndGet()
-                        response.request.newBuilder().build()
-                    } else {
-                        null
-                    }
-                }
-            }
-        }
-    }
-
-    private fun responseCount(response: Response): Int {
-        var count = 1
-        var prior = response.priorResponse
-        while (prior != null) {
-            count += 1
-            prior = prior.priorResponse
-        }
-        return count
-    }
 
     private suspend fun Call.await(): Response = suspendCancellableCoroutine { continuation ->
         continuation.invokeOnCancellation { cancel() }
@@ -271,15 +213,5 @@ class BibleApiClient(
     private companion object {
         val JSON_MEDIA_TYPE = "application/json; charset=utf-8".toMediaType()
         val EMPTY_JSON_BODY = ByteArray(0).toRequestBody(JSON_MEDIA_TYPE)
-        val AUTHENTICATOR_EXCLUDED_PATHS = setOf(
-            "/api/auth/login",
-            "/api/auth/logout",
-            "/api/auth/refresh",
-        )
     }
-
-    private data class SessionGenerationTag(
-        val epoch: Long,
-        val refreshVersion: Long,
-    )
 }

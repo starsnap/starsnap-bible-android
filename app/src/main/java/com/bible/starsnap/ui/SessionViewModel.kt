@@ -48,13 +48,12 @@ class SessionViewModel(
 
     fun bootstrap() = viewModelScope.launch {
         _state.value = SessionState.Loading
-        runCatching { api.refreshSession() }
+        runCatching { api.validateSession() }
             .onSuccess { refreshed ->
                 if (refreshed) {
                     _state.value = SessionState.Authenticated
                 } else {
                     cookieJar.clear()
-                    api.invalidateSession()
                     _state.value = SessionState.SignedOut
                 }
             }
@@ -70,7 +69,6 @@ class SessionViewModel(
 
         _login.value = _login.value.copy(isSubmitting = true, error = null)
         cookieJar.clear()
-        api.invalidateSession()
         runCatching { api.login(username, password) }
             .onSuccess {
                 _login.value = LoginUiState()
@@ -94,13 +92,11 @@ class SessionViewModel(
         _state.value = SessionState.Loading
         runCatching { api.logout() }
         cookieJar.clear()
-        api.invalidateSession()
         _state.value = SessionState.SignedOut
     }
 
     fun expireSession() {
         cookieJar.clear()
-        api.invalidateSession()
         _login.value = LoginUiState(error = "로그인이 만료되었습니다. 다시 로그인해 주세요.")
         _state.value = SessionState.SignedOut
     }

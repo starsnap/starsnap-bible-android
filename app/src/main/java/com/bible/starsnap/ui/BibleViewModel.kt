@@ -25,6 +25,9 @@ data class BibleUiState(
     val searchState: RequestState = RequestState.Idle,
     val verses: List<BibleVerse> = emptyList(),
     val selectedVerse: BibleVerse? = null,
+    val selectedVerses: List<BibleVerse> = emptyList(),
+    val selectedEndVerse: Int? = null,
+    val savedEndVerse: Int? = null,
     val noteState: RequestState = RequestState.Idle,
     val meditation: BibleMeditation? = null,
     val content: String = "",
@@ -42,7 +45,8 @@ data class BibleUiState(
         get() = license?.phase == "active" &&
             license.searchAvailable &&
             license.textDisplayAllowed
-    val isDirty: Boolean get() = content != savedContent || worshipAt != savedWorshipAt
+    val editorIsDirty: Boolean get() = content != savedContent || worshipAt != savedWorshipAt
+    val isDirty: Boolean get() = editorIsDirty || selectedEndVerse != savedEndVerse
     val canSave: Boolean
         get() = selectedVerse != null && content.trim().isNotEmpty() &&
             WorshipTime.isValid(worshipAt) && isDirty && !hasConflict && saveState != RequestState.Loading
@@ -56,52 +60,55 @@ class BibleViewModel(private val api: BibleGateway) : ViewModel() {
     private var licenseJob: Job? = null
     private var searchJob: Job? = null
     private var noteJob: Job? = null
+    private var rangeJob: Job? = null
     private var saveJob: Job? = null
 
-    fun loadLicense() {
+    fun loadLicense() = verifyLicense(preserveProtectedState = false)
+
+    fun onForeground() {
+        if (_state.value.licenseState != RequestState.Loading) {
+            verifyLicense(preserveProtectedState = true)
+        }
+    }
+
+    private fun verifyLicense(preserveProtectedState: Boolean) {
         val generation = invalidateProtectedRequests()
         _state.update {
-            it.copy(
-                licenseState = RequestState.Loading,
-                license = null,
-                searchState = RequestState.Idle,
-                verses = emptyList(),
-                selectedVerse = null,
-                noteState = RequestState.Idle,
-                meditation = null,
-                content = "",
-                worshipAt = "",
-                savedContent = "",
-                savedWorshipAt = "",
-                saveState = RequestState.Idle,
-                hasConflict = false,
-                conflictDraft = null,
-                error = null,
-                message = null,
-            )
+            if (preserveProtectedState) {
+                it.copy(
+                    licenseState = RequestState.Loading,
+                    license = null,
+                    searchState = RequestState.Idle,
+                    noteState = RequestState.Idle,
+                    saveState = RequestState.Idle,
+                    error = null,
+                    message = null,
+                )
+            } else {
+                BibleUiState(licenseState = RequestState.Loading)
+            }
         }
         licenseJob = viewModelScope.launch {
             runApi { api.licenseStatus() }
                 .onSuccess { license ->
                     if (generation != protectedGeneration) return@onSuccess
-                    _state.update {
-                        it.copy(licenseState = RequestState.Idle, license = license)
+                    _state.update { current ->
+                        if (license.phase == "active" && license.searchAvailable && license.textDisplayAllowed) {
+                            current.copy(licenseState = RequestState.Idle, license = license)
+                        } else {
+                            BibleUiState(licenseState = RequestState.Idle, license = license)
+                        }
                     }
                 }
                 .onFailure {
                     if (generation != protectedGeneration) return@onFailure
-                    _state.update {
-                        it.copy(
-                            licenseState = RequestState.Error,
-                            license = null,
-                            error = "성경 본문 이용 상태를 확인하지 못했습니다.",
-                        )
-                    }
+                    _state.value = BibleUiState(
+                        licenseState = RequestState.Error,
+                        error = "성경 본문 이용 상태를 확인하지 못했습니다.",
+                    )
                 }
         }
     }
-
-    fun onForeground() = loadLicense()
 
     fun updateQuery(value: String) {
         _state.update { it.copy(query = value, error = null, message = null) }
@@ -130,13 +137,34 @@ class BibleViewModel(private val api: BibleGateway) : ViewModel() {
     }
 
     fun selectVerse(verse: BibleVerse) {
+        val current = _state.value
+        if (current.noteState == RequestState.Loading || current.saveState == RequestState.Loading) {
+            _state.update { it.copy(error = "말씀 노트를 불러오거나 저장하는 중입니다. 잠시 후 다시 선택해 주세요.") }
+            return
+        }
+        val start = current.selectedVerse
+        val changesStart = start == null || start.bookCode != verse.bookCode ||
+            start.chapter != verse.chapter || verse.verse < start.verse
+        if ((changesStart && current.isDirty) || (!changesStart && current.editorIsDirty)) {
+            _state.update { it.copy(error = "저장하지 않은 노트가 있습니다. 먼저 저장하거나 변경을 취소해 주세요.") }
+            return
+        }
+        if (start != null && start.bookCode == verse.bookCode && start.chapter == verse.chapter && verse.verse >= start.verse) {
+            if (current.selectedEndVerse != verse.verse) selectRange(start, verse.verse)
+            return
+        }
+
         val generation = protectedGeneration
         noteJob?.cancel()
+        rangeJob?.cancel()
         saveJob?.cancel()
         val now = WorshipTime.now()
         _state.update {
             it.copy(
                 selectedVerse = verse,
+                selectedVerses = listOf(verse),
+                selectedEndVerse = verse.verse,
+                savedEndVerse = verse.verse,
                 noteState = RequestState.Loading,
                 meditation = null,
                 content = "",
@@ -156,10 +184,23 @@ class BibleViewModel(private val api: BibleGateway) : ViewModel() {
                     if (!matchesSelection(generation, verse)) return@onSuccess
                     val content = meditation?.content.orEmpty()
                     val worshipAt = WorshipTime.normalize(meditation?.worshipAt) ?: now
+                    val endVerse = meditation?.endVerse ?: verse.verse
+                    val selectedVerses = if (endVerse > verse.verse) {
+                        runApi { api.verseRange(verse, endVerse) }.getOrElse {
+                            _state.update { current -> current.copy(error = "저장된 QT 구간을 불러오지 못했습니다.") }
+                            listOf(verse)
+                        }
+                    } else {
+                        listOf(verse)
+                    }
+                    if (!matchesSelection(generation, verse)) return@onSuccess
                     _state.update {
                         it.copy(
                             noteState = RequestState.Idle,
                             meditation = meditation,
+                            selectedVerses = selectedVerses,
+                            selectedEndVerse = endVerse,
+                            savedEndVerse = endVerse,
                             content = content,
                             savedContent = content,
                             worshipAt = worshipAt,
@@ -180,6 +221,32 @@ class BibleViewModel(private val api: BibleGateway) : ViewModel() {
         }
     }
 
+    private fun selectRange(start: BibleVerse, endVerse: Int) {
+        val generation = protectedGeneration
+        rangeJob?.cancel()
+        _state.update { it.copy(noteState = RequestState.Loading, error = null, message = null) }
+        rangeJob = viewModelScope.launch {
+            runApi { api.verseRange(start, endVerse) }
+                .onSuccess { verses ->
+                    if (!matchesSelection(generation, start)) return@onSuccess
+                    _state.update {
+                        it.copy(
+                            noteState = RequestState.Idle,
+                            selectedVerses = verses,
+                            selectedEndVerse = endVerse,
+                        )
+                    }
+                }
+                .onFailure {
+                    if (handleLicenseUnavailable(it)) return@onFailure
+                    if (!matchesSelection(generation, start)) return@onFailure
+                    _state.update { current ->
+                        current.copy(noteState = RequestState.Idle, error = "선택한 QT 구간을 불러오지 못했습니다.")
+                    }
+                }
+        }
+    }
+
     fun updateContent(value: String) {
         if (value.length <= 5_000) {
             _state.update { it.copy(content = value, error = null, message = null) }
@@ -191,19 +258,25 @@ class BibleViewModel(private val api: BibleGateway) : ViewModel() {
     }
 
     fun cancelChanges() {
+        val current = _state.value
+        val verse = current.selectedVerse
         _state.update {
             it.copy(
                 content = it.savedContent,
                 worshipAt = it.savedWorshipAt,
+                selectedEndVerse = it.savedEndVerse,
                 error = null,
                 message = "변경 사항을 취소했습니다.",
             )
         }
+        val endVerse = current.savedEndVerse ?: return
+        if (verse != null && endVerse > verse.verse) selectRange(verse, endVerse)
     }
 
     fun save() {
         val current = _state.value
         val verse = current.selectedVerse ?: return
+        val endVerse = current.selectedEndVerse ?: return
         val content = current.content.trim()
         val worshipAt = current.worshipAt.trim()
         if (content.isEmpty()) {
@@ -219,7 +292,7 @@ class BibleViewModel(private val api: BibleGateway) : ViewModel() {
         saveJob?.cancel()
         _state.update { it.copy(saveState = RequestState.Loading, error = null, message = null) }
         saveJob = viewModelScope.launch {
-            runApi { api.saveMeditation(verse, content, worshipAt, current.meditation) }
+            runApi { api.saveMeditation(verse, content, worshipAt, endVerse, current.meditation) }
                 .onSuccess { saved ->
                     if (!matchesSelection(generation, verse)) return@onSuccess
                     val savedTime = WorshipTime.normalize(saved.worshipAt) ?: worshipAt
@@ -230,10 +303,12 @@ class BibleViewModel(private val api: BibleGateway) : ViewModel() {
                             savedContent = saved.content,
                             worshipAt = savedTime,
                             savedWorshipAt = savedTime,
-                        saveState = RequestState.Idle,
-                        hasConflict = false,
-                        conflictDraft = null,
-                        message = "말씀 노트를 비공개로 저장했습니다.",
+                            selectedEndVerse = saved.endVerse ?: endVerse,
+                            savedEndVerse = saved.endVerse ?: endVerse,
+                            saveState = RequestState.Idle,
+                            hasConflict = false,
+                            conflictDraft = null,
+                            message = "말씀 노트를 비공개로 저장했습니다.",
                         )
                     }
                 }
@@ -289,6 +364,7 @@ class BibleViewModel(private val api: BibleGateway) : ViewModel() {
                             savedContent = latestContent,
                             worshipAt = editedWorshipAt,
                             savedWorshipAt = latestWorshipAt,
+                            savedEndVerse = latest?.endVerse ?: verse.verse,
                             hasConflict = false,
                             conflictDraft = null,
                             saveState = RequestState.Idle,
@@ -311,6 +387,7 @@ class BibleViewModel(private val api: BibleGateway) : ViewModel() {
         licenseJob?.cancel()
         searchJob?.cancel()
         noteJob?.cancel()
+        rangeJob?.cancel()
         saveJob?.cancel()
         return protectedGeneration
     }

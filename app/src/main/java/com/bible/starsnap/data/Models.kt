@@ -3,7 +3,6 @@ package com.bible.starsnap.data
 data class LoginRequest(
     val username: String,
     val password: String,
-    val loginType: String,
 )
 
 data class BibleLicenseStatus(
@@ -46,6 +45,7 @@ data class BibleMeditation(
     val createdAt: String,
     val modifiedAt: String,
     val worshipAt: String?,
+    val endVerse: Int? = null,
 )
 
 data class CreateMeditationRequest(
@@ -54,12 +54,14 @@ data class CreateMeditationRequest(
     val verse: Int,
     val content: String,
     val worshipAt: String,
+    val endVerse: Int,
 )
 
 data class UpdateMeditationRequest(
     val content: String,
     val expectedVersion: Long,
     val worshipAt: String,
+    val endVerse: Int,
 )
 
 data class ErrorEnvelope(

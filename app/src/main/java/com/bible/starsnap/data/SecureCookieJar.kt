@@ -15,6 +15,10 @@ import javax.crypto.KeyGenerator
 import javax.crypto.SecretKey
 import javax.crypto.spec.GCMParameterSpec
 
+internal const val BIBLE_SESSION_COOKIE = "bible-session"
+
+internal fun Iterable<Cookie>.onlyBibleSessionCookies() = filter { it.name == BIBLE_SESSION_COOKIE }
+
 class SecureCookieJar(
     context: Context,
     private val origin: HttpUrl,
@@ -27,14 +31,15 @@ class SecureCookieJar(
         if (url.host != origin.host) return
         synchronized(lock) {
             val now = System.currentTimeMillis()
+            val sessionCookies = cookies.onlyBibleSessionCookies()
             this.cookies.removeAll { stored ->
-                stored.expiresAt < now || cookies.any { incoming ->
+                stored.name != BIBLE_SESSION_COOKIE || stored.expiresAt < now || sessionCookies.any { incoming ->
                     incoming.name == stored.name &&
                         incoming.domain == stored.domain &&
                         incoming.path == stored.path
                 }
             }
-            this.cookies += cookies.filter { it.expiresAt >= now }
+            this.cookies += sessionCookies.filter { it.expiresAt >= now }
             persist()
         }
     }
@@ -64,11 +69,21 @@ class SecureCookieJar(
         val encrypted = preferences.getString(COOKIES_KEY, null) ?: return emptyList()
         return runCatching {
             val json = JSONArray(decrypt(encrypted).toString(Charsets.UTF_8))
-            buildList {
+            val restored = buildList {
                 for (index in 0 until json.length()) {
-                    Cookie.parse(origin, json.getString(index))?.let(::add)
+                    Cookie.parse(origin, json.getString(index))
+                        ?.let(::add)
                 }
+            }.onlyBibleSessionCookies()
+            if (restored.size != json.length()) {
+                val sanitized = JSONArray()
+                restored.forEach { sanitized.put(it.toString()) }
+                preferences.edit().putString(
+                    COOKIES_KEY,
+                    encrypt(sanitized.toString().toByteArray(Charsets.UTF_8)),
+                ).apply()
             }
+            restored
         }.getOrElse {
             preferences.edit().remove(COOKIES_KEY).apply()
             emptyList()

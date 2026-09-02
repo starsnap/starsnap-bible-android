@@ -16,6 +16,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawingPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
@@ -41,6 +42,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
@@ -129,7 +131,7 @@ fun LoginScreen(
         }
         item {
             Text(
-                "성경 말씀을 찾고, 구절마다 묵상을 기록해보세요",
+                "성경 말씀을 찾고, 한 절 또는 여러 절로 묵상을 기록해보세요",
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
@@ -177,7 +179,7 @@ fun LoginScreen(
         }
         item {
             Text(
-                "StarSnap 계정의 아이디/이메일과 비밀번호를 사용합니다.",
+                "Bible 전용 계정을 사용합니다.",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
@@ -194,8 +196,12 @@ fun BibleScreen(
 ) {
     val context = LocalContext.current
     var confirmLogout by rememberSaveable { mutableStateOf(false) }
+    val listState = rememberLazyListState()
 
     LifecycleEventEffect(Lifecycle.Event.ON_START) { viewModel.onForeground() }
+    LaunchedEffect(state.selectedVerse?.id, state.selectedEndVerse) {
+        if (state.selectedVerse != null) listState.animateScrollToItem(4 + state.verses.size)
+    }
 
     if (confirmLogout) {
         AlertDialog(
@@ -238,6 +244,7 @@ fun BibleScreen(
         },
     ) { innerPadding ->
         LazyColumn(
+            state = listState,
             modifier = Modifier
                 .fillMaxSize()
                 .padding(innerPadding),
@@ -245,42 +252,50 @@ fun BibleScreen(
             verticalArrangement = Arrangement.spacedBy(14.dp),
         ) {
             item { IntroCard() }
-            item { LicenseCard(state, viewModel::loadLicense) }
-            item { SearchCard(state, viewModel::updateQuery, viewModel::search) }
+            item { LicenseCard(state, viewModel::onForeground) }
+            if (state.canSearch) {
+                item { SearchCard(state, viewModel::updateQuery, viewModel::search) }
 
-            if (state.verses.isEmpty() && state.searchState == RequestState.Idle) {
-                item { EmptyState(state.canSearch) }
+                if (state.verses.isEmpty() && state.searchState == RequestState.Idle) {
+                    item { EmptyState(true) }
+                } else {
+                    item {
+                        Text(
+                            "검색 결과 ${state.verses.size}개",
+                            style = MaterialTheme.typography.titleLarge,
+                            modifier = Modifier.semantics { heading() },
+                        )
+                    }
+                    items(
+                        items = state.verses,
+                        key = { "${it.translationCode}:${it.bookCode}:${it.chapter}:${it.verse}" },
+                    ) { verse ->
+                        val selected = state.selectedVerses.any { it.id == verse.id }
+                        val canExtend = state.selectedVerse?.let {
+                            it.bookCode == verse.bookCode && it.chapter == verse.chapter && verse.verse >= it.verse
+                        } == true
+                        VerseCard(verse, selected, canExtend) { viewModel.selectVerse(verse) }
+                    }
+                }
+
+                state.selectedVerse?.let { verse ->
+                    item(key = "note-editor") {
+                        NoteEditor(
+                            state = state,
+                            verse = verse,
+                            onContentChange = viewModel::updateContent,
+                            onWorshipAtChange = viewModel::updateWorshipAt,
+                            onPickTime = {
+                                showDateTimePicker(context, state.worshipAt, viewModel::updateWorshipAt)
+                            },
+                            onCancel = viewModel::cancelChanges,
+                            onSave = viewModel::save,
+                            onReload = viewModel::reloadAfterConflict,
+                        )
+                    }
+                }
             } else {
-                item {
-                    Text(
-                        "검색 결과 ${state.verses.size}개",
-                        style = MaterialTheme.typography.titleLarge,
-                        modifier = Modifier.semantics { heading() },
-                    )
-                }
-                items(
-                    items = state.verses,
-                    key = { "${it.translationCode}:${it.bookCode}:${it.chapter}:${it.verse}" },
-                ) { verse ->
-                    VerseCard(verse, state.selectedVerse == verse) { viewModel.selectVerse(verse) }
-                }
-            }
-
-            state.selectedVerse?.let { verse ->
-                item {
-                    NoteEditor(
-                        state = state,
-                        verse = verse,
-                        onContentChange = viewModel::updateContent,
-                        onWorshipAtChange = viewModel::updateWorshipAt,
-                        onPickTime = {
-                            showDateTimePicker(context, state.worshipAt, viewModel::updateWorshipAt)
-                        },
-                        onCancel = viewModel::cancelChanges,
-                        onSave = viewModel::save,
-                        onReload = viewModel::reloadAfterConflict,
-                    )
-                }
+                item { EmptyState(false) }
             }
 
             state.error?.let { item { Feedback(it, true) } }
@@ -297,7 +312,7 @@ private fun IntroCard() = Card(
     Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
         Icon(Icons.Outlined.AutoStories, contentDescription = null)
         Text(
-            "한 구절을 찾고, 조용히 기록하세요",
+            "말씀 구간을 찾고, 조용히 기록하세요",
             style = MaterialTheme.typography.headlineSmall,
             modifier = Modifier.semantics { heading() },
         )
@@ -368,7 +383,7 @@ private fun SearchCard(
             else Text("검색")
         }
         Text(
-            "본문 권한이 확인된 경우에만 구절 내용을 표시합니다.",
+            "시작 절을 누른 뒤 같은 장의 마지막 절을 누르면 여러 절을 선택할 수 있습니다.",
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
@@ -395,7 +410,7 @@ private fun EmptyState(canSearch: Boolean) = Card {
 }
 
 @Composable
-private fun VerseCard(verse: BibleVerse, selected: Boolean, onClick: () -> Unit) = Card(
+private fun VerseCard(verse: BibleVerse, selected: Boolean, canExtend: Boolean, onClick: () -> Unit) = Card(
     modifier = Modifier.semantics { this.selected = selected },
     onClick = onClick,
     colors = CardDefaults.cardColors(
@@ -408,6 +423,11 @@ private fun VerseCard(verse: BibleVerse, selected: Boolean, onClick: () -> Unit)
         Text(verse.translationName, style = MaterialTheme.typography.labelSmall)
         Text(verse.text, style = MaterialTheme.typography.bodyLarge)
         Text(verse.copyrightNotice, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Text(
+            if (selected) "선택됨" else if (canExtend) "여기까지 선택" else "QT 시작",
+            style = MaterialTheme.typography.labelMedium,
+            fontWeight = FontWeight.SemiBold,
+        )
     }
 }
 
@@ -427,12 +447,21 @@ private fun NoteEditor(
             Icon(Icons.Outlined.Lock, contentDescription = null)
             Column(Modifier.padding(start = 10.dp)) {
                 Text("말씀 노트 · 비공개", style = MaterialTheme.typography.titleLarge)
-                Text(verse.reference)
+                Text(
+                    if (state.selectedEndVerse == null || state.selectedEndVerse == verse.verse) verse.reference
+                    else "${verse.bookName} ${verse.chapter}:${verse.verse}-${state.selectedEndVerse}",
+                )
             }
         }
         if (state.noteState == RequestState.Loading) {
             CircularProgressIndicator()
         } else {
+            Text(
+                state.selectedVerses.joinToString("\n\n") { selected ->
+                    if (state.selectedVerses.size == 1) selected.text else "${selected.verse}절  ${selected.text}"
+                },
+                style = MaterialTheme.typography.bodyLarge,
+            )
             OutlinedTextField(
                 value = state.worshipAt,
                 onValueChange = onWorshipAtChange,

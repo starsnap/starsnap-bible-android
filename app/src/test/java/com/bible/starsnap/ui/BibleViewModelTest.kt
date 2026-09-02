@@ -59,7 +59,7 @@ class BibleViewModelTest {
     }
 
     @Test
-    fun slowPreviousVerseCannotOverwriteNewSelection() = runTest(dispatcher) {
+    fun selectionWhileNoteLoadsKeepsCurrentVerse() = runTest(dispatcher) {
         val gateway = FakeGateway()
         val model = BibleViewModel(gateway)
         gateway.licenseResponses += CompletableDeferred(activeLicense())
@@ -68,21 +68,81 @@ class BibleViewModelTest {
         val verseA = verse("A")
         val verseB = verse("B")
         val noteA = CompletableDeferred<BibleMeditation?>()
-        val noteB = CompletableDeferred<BibleMeditation?>()
         gateway.noteResponses[verseA.id] = noteA
-        gateway.noteResponses[verseB.id] = noteB
 
         model.selectVerse(verseA)
         runCurrent()
         model.selectVerse(verseB)
         runCurrent()
         noteA.complete(meditation("A", 0, "note A"))
-        noteB.complete(meditation("B", 0, "note B"))
         advanceUntilIdle()
 
-        assertEquals(verseB, model.state.value.selectedVerse)
-        assertEquals("note B", model.state.value.content)
-        assertEquals("B", model.state.value.meditation?.id)
+        assertEquals(verseA, model.state.value.selectedVerse)
+        assertEquals("note A", model.state.value.content)
+        assertTrue(model.state.value.error?.contains("불러오거나 저장") == true)
+    }
+
+    @Test
+    fun foregroundRecheckKeepsDraftWhenLicenseStaysActive() = runTest(dispatcher) {
+        val gateway = FakeGateway()
+        val model = BibleViewModel(gateway)
+        gateway.licenseResponses += CompletableDeferred(activeLicense())
+        model.loadLicense()
+        advanceUntilIdle()
+        val verse = verse("A")
+        gateway.noteResponses[verse.id] = CompletableDeferred(null)
+        model.selectVerse(verse)
+        advanceUntilIdle()
+        model.updateContent("작성 중인 초안")
+        gateway.licenseResponses += CompletableDeferred(activeLicense())
+
+        model.onForeground()
+        advanceUntilIdle()
+
+        assertEquals("작성 중인 초안", model.state.value.content)
+        assertEquals(verse, model.state.value.selectedVerse)
+        assertTrue(model.state.value.canSearch)
+    }
+
+    @Test
+    fun dirtyDraftBlocksNewVerseSelection() = runTest(dispatcher) {
+        val gateway = FakeGateway()
+        val model = BibleViewModel(gateway)
+        gateway.licenseResponses += CompletableDeferred(activeLicense())
+        model.loadLicense()
+        advanceUntilIdle()
+        val verseA = verse("A")
+        val verseB = verse("B")
+        gateway.noteResponses[verseA.id] = CompletableDeferred(null)
+        model.selectVerse(verseA)
+        advanceUntilIdle()
+        model.updateContent("저장 전 초안")
+
+        model.selectVerse(verseB)
+
+        assertEquals(verseA, model.state.value.selectedVerse)
+        assertEquals("저장 전 초안", model.state.value.content)
+        assertTrue(model.state.value.error?.contains("저장하지 않은") == true)
+    }
+
+    @Test
+    fun selectingLaterVerseLoadsCanonicalRange() = runTest(dispatcher) {
+        val gateway = FakeGateway()
+        val model = BibleViewModel(gateway)
+        gateway.licenseResponses += CompletableDeferred(activeLicense())
+        model.loadLicense()
+        advanceUntilIdle()
+        val start = verse("A")
+        gateway.noteResponses[start.id] = CompletableDeferred(null)
+        model.selectVerse(start)
+        advanceUntilIdle()
+
+        model.selectVerse(start.copy(verse = 3))
+        advanceUntilIdle()
+
+        assertEquals(listOf(1, 2, 3), model.state.value.selectedVerses.map { it.verse })
+        assertEquals(3, model.state.value.selectedEndVerse)
+        assertTrue(model.state.value.isDirty)
     }
 
     @Test
@@ -167,15 +227,16 @@ class BibleViewModelTest {
         val noteResponses = mutableMapOf<String, CompletableDeferred<BibleMeditation?>>()
         var saveError: Throwable? = null
 
-        override suspend fun refreshSession() = false
+        override suspend fun validateSession() = false
         override suspend fun login(username: String, password: String) = Unit
         override suspend fun logout() = Unit
-        override fun invalidateSession() = Unit
         override suspend fun licenseStatus() = licenseResponses.removeFirst().await()
         override suspend fun searchVerses(query: String, page: Int): BibleSlice {
             searchError?.let { throw it }
             return searchResponse
         }
+        override suspend fun verseRange(start: BibleVerse, endVerse: Int) =
+            (start.verse..endVerse).map { start.copy(verse = it, text = "synthetic-$it") }
         override suspend fun meditationByVerse(verse: BibleVerse) =
             noteResponses.getValue(verse.id).await()
 
@@ -183,6 +244,7 @@ class BibleViewModelTest {
             verse: BibleVerse,
             content: String,
             worshipAt: String,
+            endVerse: Int,
             current: BibleMeditation?,
         ): BibleMeditation {
             saveError?.let { throw it }
@@ -221,6 +283,7 @@ class BibleViewModelTest {
             createdAt = "2026-09-01T09:00:00",
             modifiedAt = "2026-09-01T09:00:00",
             worshipAt = "2026-09-01T09:00:00",
+            endVerse = 1,
         )
     }
 }

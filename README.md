@@ -4,16 +4,16 @@
 
 ## 원칙
 
-- API: `https://api.starsnap.kr`
+- API: `https://bible.starsnap.kr`
 - Android API 36, Kotlin, Jetpack Compose, JDK 21
 - 권한은 `INTERNET`만 사용
-- HttpOnly 인증 쿠키는 Android Keystore AES-GCM으로 암호화해 저장
+- Bible 전용 `bible-session` HttpOnly 쿠키는 Android Keystore AES-GCM으로 암호화해 저장
 - 보호되는 성경 본문은 앱 번들, 테스트 fixture, 로컬 DB, 오프라인 캐시에 포함하지 않음
 - 서버 라이선스 상태가 `pending` 또는 `paused`면 검색 결과와 선택 본문을 메모리에서 즉시 제거
 
-## 현재 배포 차단 사항
+## 계정 분리
 
-StarSnap 백엔드는 사용자당 refresh 세션을 하나만 저장합니다. 이 앱에서 로그인하면 기존 SNS 웹·Android·iOS 세션이 만료될 수 있으므로, 사용자+세션 단위 다중 로그인 구조가 배포되기 전에는 Play Store에 출시하지 않습니다.
+로그인·세션·말씀 노트는 Bible 전용 API와 PostgreSQL만 사용합니다. SNS 계정, access/refresh 토큰, FCM 토큰과 사용자 데이터는 읽거나 변경하지 않습니다.
 
 ## 검증
 
