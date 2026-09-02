@@ -37,6 +37,6 @@ class CookieSerializationTest {
             Cookie.Builder().name("bible-session").value("current").hostOnlyDomain(origin.host).build(),
         )
 
-        assertEquals(listOf("bible-session"), cookies.onlyBibleSessionCookies().map(Cookie::name))
+        assertEquals(listOf("bible-session"), cookies.onlyBibleSessionCookies().map { it.name() })
     }
 }
